@@ -31,6 +31,7 @@ print('The state for the first agent looks like:', states[0])
 env_info = env.reset(train_mode=True)[brain_name]      # reset the environment    
 states = env_info.vector_observations                  # get the current state (for each agent)
 scores = np.zeros(num_agents)                          # initialize the score (for each agent)
+counter = 0
 while True:
     actions = np.random.randn(num_agents, action_size) # select an action (for each agent)
     actions = np.clip(actions, -1, 1)                  # all actions between -1 and 1
@@ -40,8 +41,10 @@ while True:
     dones = env_info.local_done                        # see if episode finished
     scores += env_info.rewards                         # update the score (for each agent)
     states = next_states                               # roll over states to next time step
+    counter += 1
     if np.any(dones):                                  # exit loop if episode finished
         break
+print(counter)
 print('Total score (averaged over agents) this episode: {}'.format(np.mean(scores)))
 
 env.close()
