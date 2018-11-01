@@ -69,7 +69,7 @@ class Actor():
         # --- Actor ---  #
         # Policy network #
         def mlp_block(x, units):
-            x = tf.layer.dense(x, units)
+            x = tf.layers.dense(x, units)
             x = tf.nn.relu(x)
             return x
         
@@ -79,23 +79,65 @@ class Actor():
             else:
                 x = mlp_block(x, n)
         
-        out = tf.layer.dense(x, self.action_size)
+        out = tf.layers.dense(x, self.action_size)
         scale_out = tf.nn.tanh(x) * self.action_bound
         
         return out, scale_out
         
 class Critic():
-    def __init__(self):
-        pass
+    def __init__(self, session, state_size, action_size, learning_rate = 1e-3, tau=1e-3, gamma=0.9, mini_batch=64):
+        self.state_size = state_size
+        self.action_size = action_size
+        self.tau = tau
+        self.gamma = gamma
+        self.bz = mini_batch
+        
+        # init the model #
+        self.sess = session
+        
+        self.state = tf.placeholder(shape = [None, self.state_size], dtype = tf.float32)
+        self.next_state = tf.placeholder(shape = [None, self.state_size], dtype = tf.float32)
+        self.action = tf.placeholder(shape = [None, self.action_size], dtype = tf.int32)
+        
+        
+        with tf.variable_scope("Critic"):
+            with tf.name_scope('local'):
+                self.local_out = self._build_critic_network(self.state, trainable = True)
+                
+            with tf.variable_scope('target'):
+                self.target_out = self._build_critic_network(self.next_state, trainable = False)
+                
+        # Handlers for parameters
+        self.localnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Critic/local')
+        self.targetnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Critic/target')
+        self.params_replace = [tf.assign(old * self.tau, new * (1-self.tau)) for old, new in zip(self.targetnet_params, self.localnet_params)]
+        
+        #
+        self.predicted_q_value = tf.placeholder(shape = [None], dtype = tf.float32)
+        self.loss = tf.reduce_mean(tf.square(self.local_out - self.predicted_q_value))
+        
+        optimizer = tf.train.AdamOptimizer(self.learning_rate)
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        with tf.control_dependencies(update_ops):
+            self.train_op = optimizer.minimize(self.loss)
+        
+        self.action_gradient = tf.gradients(self.local_out, self.action)
+        
     
-    def predict(self):
-        pass
+    def predict(self, inputs, action):
+        out = self.sess.run(self.local_out, feed_dict = {self.state: inputs, self.action: action})
+        return out
     
     def predict_target(self):
-        pass
+        out = self.sess.run(self.target_out, feed_dict = {self.next_state: inputs})
+        return out
     
-    def train(self):
-        pass
+    def train(self, inputs, action, predicted_q_value):
+        out, _ = self.sess.run([self.local_out, self.train_op], 
+                               feed_dict = {self.state: inputs, 
+                                            self.action: action, 
+                                            self.predicted_q_value:predicted_q_value})
+        return out
     
     def action_gradients(self):
         pass
@@ -103,8 +145,23 @@ class Critic():
     def update_target_network(self):
         pass
     
-    def _build_critic_network(self):
-        pass
+    def _build_critic_network(self, input_state, neurons_per_layer = [256,256,128], trainable = True):
+        # --- Critic --- #
+        ###  Q-network ###
+        def mlp_block(x, units, trainable):
+            x = tf.layers.dense(x, units, trainable)
+            x = tf.nn.relu(x)
+            return x
+        
+        for i, n in enumerate(neurons_per_layer):
+            if i == 0:
+                x = mlp_block(input_state, n, trainable)
+            else:
+                x = mlp_block(x, n, trainable)
+        
+        out = tf.layers.dense(x, self.action_size, trainable)
+        
+        return out
     
     
     

@@ -1,6 +1,3 @@
-import pip
-pip.main(['-q','install', './python', '--user'])
-
 from unityagents import UnityEnvironment
 import numpy as np
 
