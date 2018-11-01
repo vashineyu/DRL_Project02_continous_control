@@ -38,7 +38,8 @@ class Actor():
             
         self.localnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'local_net')
         self.targetnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'target_net')
-        self.params_replace = [tf.assign(old * tau, new * (1.-tau) ) for old, new in zip(self.targetnet_params, self.localnet_params)]
+        
+        self.params_replace = [tf.assign(old, old * tau + (1.-tau) * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
         
         self.action_gradient = tf.placeholder(shape = [None, self.action_size], dtype = tf.float32)
         self.unnorm_actor_gradients = tf.gradients(self.out, self.localnet_params, -self.action_gradient)
@@ -88,9 +89,6 @@ class Critic():
     def __init__(self, session, state_size, action_size, learning_rate = 1e-3, tau=1e-3, gamma=0.9, mini_batch=64):
         self.state_size = state_size
         self.action_size = action_size
-        self.tau = tau
-        self.gamma = gamma
-        self.bz = mini_batch
         
         # init the model #
         self.sess = session
@@ -110,13 +108,13 @@ class Critic():
         # Handlers for parameters
         self.localnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Critic/local')
         self.targetnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Critic/target')
-        self.params_replace = [tf.assign(old * self.tau, new * (1-self.tau)) for old, new in zip(self.targetnet_params, self.localnet_params)]
+        self.params_replace = [tf.assign(old, old * tau + (1.-tau) * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
         
         #
         self.predicted_q_value = tf.placeholder(shape = [None], dtype = tf.float32)
         self.loss = tf.reduce_mean(tf.square(self.local_out - self.predicted_q_value))
         
-        optimizer = tf.train.AdamOptimizer(self.learning_rate)
+        optimizer = tf.train.AdamOptimizer(learning_rate)
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
             self.train_op = optimizer.minimize(self.loss)
@@ -139,17 +137,18 @@ class Critic():
                                             self.predicted_q_value:predicted_q_value})
         return out
     
-    def action_gradients(self):
-        pass
+    def action_gradients(self, inputs, actions):
+        out = self.sess.run(self.action_gradient, feed_dict = {self.state: inputs, self.action: actions})
+        return out
     
     def update_target_network(self):
-        pass
+        self.sess.run(params_replace)
     
     def _build_critic_network(self, input_state, neurons_per_layer = [256,256,128], trainable = True):
         # --- Critic --- #
         ###  Q-network ###
         def mlp_block(x, units, trainable):
-            x = tf.layers.dense(x, units, trainable)
+            x = tf.layers.dense(x, units, trainable = trainable)
             x = tf.nn.relu(x)
             return x
         
@@ -159,7 +158,7 @@ class Critic():
             else:
                 x = mlp_block(x, n, trainable)
         
-        out = tf.layers.dense(x, self.action_size, trainable)
+        out = tf.layers.dense(x, self.action_size, trainable = trainable)
         
         return out
     
@@ -173,6 +172,9 @@ if __name__ == '__main__':
     fake_action_size = 4
     actor = Actor(session = fake_session, state_size = fake_state_size, action_size = fake_action_size)
     print("Build Actor Pass")
+    
+    critic = Critic(session = fake_session, state_size = fake_state_size, action_size = fake_action_size)
+    print("Build Critic Pass")
     
     
     
