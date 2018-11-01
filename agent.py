@@ -115,6 +115,8 @@ if __name__ == '__main__':
     fake_state_size = 33
     fake_action_size = 4
     actor = Actor(session = fake_session, state_size = fake_state_size, action_size = fake_action_size)
-    print("Build Actor Done")
+    print("Build Actor Pass")
+    
+    
     
     
