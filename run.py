@@ -9,9 +9,6 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-import pip
-pip.main(['-q','install', './python', '--user'])
-
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--num_episodes', default = 200, type = int)
@@ -81,7 +78,9 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
         while True:
             counter += 1
             state = env_info.vector_observations[0]
-
+            
+            #state = np.reshape(state, (1, 33))
+            
             action = actor.predict(np.reshape(state, (1, actor.state_size))) + actor_noise()
 
             env_info = env.step(action[0])[brain_name]
@@ -131,7 +130,7 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
                 writer.add_summary(s_value, i)
                 writer.flush()
                 print('| Reward: {:d} | Episode: {:d} | Qmax: {:.4f}'.format(int(ep_reward), \
-                        i, (ep_ave_max_q / float(j))))
+                        i, (ep_ave_max_q / float(counter))))
                 break
 
 # Run it

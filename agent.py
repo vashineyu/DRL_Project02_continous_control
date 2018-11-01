@@ -64,7 +64,7 @@ class Actor():
         
     def update_target_network(self):
         # No return fuction
-        self.sess.run(params_replace)
+        self.sess.run(self.params_replace)
         
     def _build_actor_network(self, neurons_per_layer = [256, 256, 128]):
         # --- Actor ---  #
@@ -80,8 +80,8 @@ class Actor():
             else:
                 x = mlp_block(x, n)
         
-        out = tf.layers.dense(x, self.action_size)
-        scale_out = tf.nn.tanh(x) * self.action_bound
+        out = tf.layers.dense(x, units = self.action_size)
+        scale_out = tf.nn.tanh(out) * self.action_bound
         
         return out, scale_out
         
@@ -143,7 +143,7 @@ class Critic():
         return out
     
     def update_target_network(self):
-        self.sess.run(params_replace)
+        self.sess.run(self.params_replace)
     
     def _build_critic_network(self, input_state, neurons_per_layer = [256,256,128], trainable = True):
         # --- Critic --- #
@@ -192,7 +192,7 @@ def build_summary():
     episode_ave_max_q = tf.Variable(0.)
     
     tf.summary.scalar('Reward', episode_reward)
-    tf.summary.scalar('Qmax value', episode_ave_max_q)
+    tf.summary.scalar('Qmax_value', episode_ave_max_q)
     merge_ops = tf.summary.merge_all()
     
     return merge_ops, [episode_reward, episode_ave_max_q]
