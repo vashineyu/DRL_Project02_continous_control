@@ -89,6 +89,7 @@ class Critic():
     def __init__(self, session, state_size, action_size, learning_rate = 1e-3, tau=1e-3, gamma=0.9, mini_batch=64):
         self.state_size = state_size
         self.action_size = action_size
+        self.gamma = gamma
         
         # init the model #
         self.sess = session
@@ -126,8 +127,8 @@ class Critic():
         out = self.sess.run(self.local_out, feed_dict = {self.state: inputs, self.action: action})
         return out
     
-    def predict_target(self):
-        out = self.sess.run(self.target_out, feed_dict = {self.next_state: inputs})
+    def predict_target(self, inputs, action):
+        out = self.sess.run(self.target_out, feed_dict = {self.next_state: inputs, self.action: action})
         return out
     
     def train(self, inputs, action, predicted_q_value):
@@ -162,7 +163,39 @@ class Critic():
         
         return out
     
+# Taken from https://github.com/openai/baselines/blob/master/baselines/ddpg/noise.py, which is
+# based on http://math.stackexchange.com/questions/1287634/implementing-ornstein-uhlenbeck-in-matlab
+class OrnsteinUhlenbeckActionNoise:
+    def __init__(self, mu, sigma=0.3, theta=.15, dt=1e-2, x0=None):
+        self.theta = theta
+        self.mu = mu
+        self.sigma = sigma
+        self.dt = dt
+        self.x0 = x0
+        self.reset()
+
+    def __call__(self):
+        x = self.x_prev + self.theta * (self.mu - self.x_prev) * self.dt + \
+                self.sigma * np.sqrt(self.dt) * np.random.normal(size=self.mu.shape)
+        self.x_prev = x
+        return x
+
+    def reset(self):
+        self.x_prev = self.x0 if self.x0 is not None else np.zeros_like(self.mu)
+
+    def __repr__(self):
+        return 'OrnsteinUhlenbeckActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
+
     
+def build_summary():
+    episode_reward = tf.Variable(0.)
+    episode_ave_max_q = tf.Variable(0.)
+    
+    tf.summary.scalar('Reward', episode_reward)
+    tf.summary.scalar('Qmax value', episode_ave_max_q)
+    merge_ops = tf.summary.merge_all()
+    
+    return merge_ops, [episode_reward, episode_ave_max_q]
     
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = "-1"
