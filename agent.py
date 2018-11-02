@@ -54,7 +54,7 @@ class Actor():
         value = self.sess.run(self.scaled_out, feed_dict = {self.state:inputs})
         return value
     
-    def predtict_target(self):
+    def predict_target(self, inputs):
         value = self.sess.run(self.target_scaled_out, feed_dict = {self.state:inputs})
         return value
     
@@ -112,7 +112,7 @@ class Critic():
         self.params_replace = [tf.assign(old, old * tau + (1.-tau) * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
         
         #
-        self.predicted_q_value = tf.placeholder(shape = [None], dtype = tf.float32)
+        self.predicted_q_value = tf.placeholder(shape = [None, self.action_size], dtype = tf.float32)
         self.loss = tf.reduce_mean(tf.square(self.local_out - self.predicted_q_value))
         
         optimizer = tf.train.AdamOptimizer(learning_rate)

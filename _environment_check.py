@@ -2,7 +2,7 @@ from unityagents import UnityEnvironment
 import numpy as np
 
 print("Start to load unity ENV")
-env = UnityEnvironment(file_name='/data/Reacher_One_Linux_NoVis/Reacher_One_Linux_NoVis.x86_64')
+env = UnityEnvironment(file_name='./Reacher_One_Linux_NoVis/Reacher_One_Linux_NoVis.x86_64')
 
 # get the default brain
 brain_name = env.brain_names[0]
