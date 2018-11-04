@@ -11,10 +11,10 @@ import matplotlib.pyplot as plt
 
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('--num_episodes', default = 200, type = int)
+parser.add_argument('--num_episodes', default = 250, type = int)
 parser.add_argument('--batch_size', default = 32, type = int)
-parser.add_argument('--buffer_size', default = 50, type = int)
-parser.add_argument('--n_to_soft_update', default = 4, type = int)
+parser.add_argument('--buffer_size', default = 1000, type = int)
+parser.add_argument('--n_to_soft_update', default = 1, type = int)
 parser.add_argument('--use_gpu', default = 0)
 FLAGS = parser.parse_args()
 
@@ -96,7 +96,6 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
                              )
 
             if replay_buffer.size() >= FLAGS.buffer_size:
-                print('here')
                 s1_batch, a_batch, r_batch, t_batch, s2_batch = replay_buffer.sample_batch(FLAGS.batch_size)
 
                 target_q = critic.predict_target(s2_batch, 
@@ -106,14 +105,15 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
                 y_i = []
                 for k in range(FLAGS.batch_size):
                     if t_batch[k]:
-                        y_i.append(r_batch[k])
+                        y_i.append([r_batch[k]] * critic.action_size )
                     else:
                         y_i.append(r_batch[k] + critic.gamma * target_q[k])
                 
                 
                 # train critic and get predicted_q_value
                 predicted_q_value = critic.train(s1_batch, 
-                                                 a_batch, np.reshape(np.array(y_i), (FLAGS.batch_size, critic.action_size) ))
+                                                 a_batch, 
+                                                 np.reshape(np.array(y_i), (FLAGS.batch_size, critic.action_size) ))
                 ep_ave_max_q += np.amax(predicted_q_value)
 
                 a_outs = actor.predict(s1_batch)
@@ -127,7 +127,7 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
                     critic.update_target_network()
                 
                 state = next_state
-                ep_reward += r
+                ep_reward += reward
             
             if np.any(done):
                 s_value = sess.run(summary_ops, feed_dict = {summary_vars[0]: ep_reward, summary_vars[1]: ep_ave_max_q / float(counter)})

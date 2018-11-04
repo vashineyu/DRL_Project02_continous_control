@@ -45,7 +45,7 @@ class Actor():
         self.unnorm_actor_gradients = tf.gradients(self.out, self.localnet_params, -self.action_gradient)
         self.action_gradients = list(map(lambda x: tf.div(x, self.bz), self.unnorm_actor_gradients))
         
-        self.train_op = tf.train.AdamOptimizer(self.lr).apply_gradients(zip(self.action_gradients, self.localnet_params))
+        self.train_op = tf.train.RMSPropOptimizer(self.lr).apply_gradients(zip(self.action_gradients, self.localnet_params))
         
         # --- Checkpoint and summary #
         self.saver = tf.train.Saver()
@@ -96,7 +96,7 @@ class Critic():
         
         self.state = tf.placeholder(shape = [None, self.state_size], dtype = tf.float32)
         self.next_state = tf.placeholder(shape = [None, self.state_size], dtype = tf.float32)
-        self.action = tf.placeholder(shape = [None, self.action_size], dtype = tf.int32)
+        self.action = tf.placeholder(shape = [None, self.action_size], dtype = tf.float32)
         
         
         with tf.variable_scope("Critic"):
@@ -115,12 +115,13 @@ class Critic():
         self.predicted_q_value = tf.placeholder(shape = [None, self.action_size], dtype = tf.float32)
         self.loss = tf.reduce_mean(tf.square(self.local_out - self.predicted_q_value))
         
-        optimizer = tf.train.AdamOptimizer(learning_rate)
+        optimizer = tf.train.RMSPropOptimizer(learning_rate)
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
             self.train_op = optimizer.minimize(self.loss)
         
-        self.action_gradient = tf.gradients(self.local_out, self.action)
+        # self.local_out should be single value?
+        self.action_gradient = tf.gradients(ys = self.local_out, xs = self.action)[0]
         
     
     def predict(self, inputs, action):
@@ -139,6 +140,7 @@ class Critic():
         return out
     
     def action_gradients(self, inputs, actions):
+        
         out = self.sess.run(self.action_gradient, feed_dict = {self.state: inputs, self.action: actions})
         return out
     
@@ -158,6 +160,8 @@ class Critic():
                 x = mlp_block(input_state, n, trainable)
             else:
                 x = mlp_block(x, n, trainable)
+        x_a = tf.layers.dense(self.action, 64, trainable = trainable)
+        x = tf.concat([x, x_a], axis = 1)
         
         out = tf.layers.dense(x, self.action_size, trainable = trainable)
         
