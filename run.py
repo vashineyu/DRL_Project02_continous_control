@@ -79,13 +79,12 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
             counter += 1
             state = env_info.vector_observations[0]
             
-            #state = np.reshape(state, (1, 33))
-            
+            # Generate action by Actor's local_network
             action = actor.predict(np.reshape(state, (1, actor.state_size))) + actor_noise()
 
             env_info = env.step(action[0])[brain_name]
             next_state = env_info.vector_observations[0]   # get the next state
-            reward = env_info.rewards[0]                   # get the reward
+            reward = float(env_info.rewards[0])                   # get the reward
             done = env_info.local_done[0]                  # see if episode has finished
 
             replay_buffer.add(np.reshape(state, (actor.state_size,)), 
@@ -97,24 +96,17 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
 
             if replay_buffer.size() >= FLAGS.buffer_size:
                 s1_batch, a_batch, r_batch, t_batch, s2_batch = replay_buffer.sample_batch(FLAGS.batch_size)
-
-                target_q = critic.predict_target(s2_batch, 
-                                                 actor.predict_target(s2_batch))
                 
-                #print(r_batch) # 32x1
-                y_i = []
-                for k in range(FLAGS.batch_size):
-                    if t_batch[k]:
-                        y_i.append([r_batch[k]] * critic.action_size )
-                    else:
-                        y_i.append(r_batch[k] + critic.gamma * target_q[k])
+                a2_batch = actor.predict_target(s2_batch)
+                q_target_next = critic.predict_target(s2_batch, a2_batch)
+                # reward + (not done * gamma * q_target_next)
+                q_target = r_batch + (1.-t_batch) * 0.9 * q_target_next.ravel()
+                # Evaluate Actors' action by critic and train the critic  
                 
-                
-                # train critic and get predicted_q_value
-                predicted_q_value = critic.train(s1_batch, 
-                                                 a_batch, 
-                                                 np.reshape(np.array(y_i), (FLAGS.batch_size, critic.action_size) ))
-                ep_ave_max_q += np.amax(predicted_q_value)
+                current_q_value = critic.train(states = s1_batch,
+                                               actions = a_batch,
+                                               q_targets = q_target)
+                ep_ave_max_q = max(current_q_value)[0]
 
                 a_outs = actor.predict(s1_batch)
                 grads = critic.action_gradients(s1_batch, a_outs)
@@ -126,14 +118,14 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
                     actor.update_target_network()
                     critic.update_target_network()
                 
-                state = next_state
-                ep_reward += reward
+            ep_reward += reward
             
             if np.any(done):
-                s_value = sess.run(summary_ops, feed_dict = {summary_vars[0]: ep_reward, summary_vars[1]: ep_ave_max_q / float(counter)})
+                s_value = sess.run(summary_ops, feed_dict = {summary_vars[0]: ep_reward, 
+                                                             summary_vars[1]: ep_ave_max_q / float(counter)})
                 writer.add_summary(s_value, i)
                 writer.flush()
-                print('| Reward: {:d} | Episode: {:d} | Qmax: {:.4f}'.format(int(ep_reward), \
+                print('| Reward: {:.3f} | Episode: {:d} | Qmax: {:.4f}'.format(float(ep_reward), \
                         i, (ep_ave_max_q / float(counter))))
                 break
 
@@ -145,8 +137,8 @@ with tf.Session() as sess:
     state_size = states.shape[1]
     action_bound = 1
     
-    actor = Actor(sess, state_size, action_size, action_bound)
-    critic = Critic(sess, state_size, action_size)
+    actor = Actor(sess, state_size, action_size, action_bound, batch_size = FLAGS.batch_size)
+    critic = Critic(sess, state_size, action_size, batch_size = FLAGS.batch_size)
     
     actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_size))
     

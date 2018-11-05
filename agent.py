@@ -7,7 +7,7 @@ Implementation of DDPG for solving continous control
 """
 
 class Actor():
-    def __init__(self, session, state_size, action_size, action_bound = 1, learning_rate = 0.001, tau = 0.001, batch_size = 64):
+    def __init__(self, session, state_size, action_size, action_bound = 1, learning_rate = 1e-3, tau = 1e-2, batch_size = 64):
         """
         Actor network
         Args:
@@ -30,22 +30,27 @@ class Actor():
         self.sess = session
         
         self.state = tf.placeholder(shape = [None, self.state_size], dtype = tf.float32)
-        with tf.variable_scope('local_net'):
-            self.out, self.scaled_out = self._build_actor_network()
+        with tf.variable_scope("Actor"):
+            with tf.variable_scope('local_net'):
+                self.out, self.scaled_out = self._build_actor_network()
+            with tf.variable_scope('target_net'):
+                self.target_out, self.target_scaled_out = self._build_actor_network()
             
-        with tf.variable_scope('target_net'):
-            self.target_out, self.target_scaled_out = self._build_actor_network()
-            
-        self.localnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'local_net')
-        self.targetnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'target_net')
+        self.localnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Actor/local_net')
+        self.targetnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Actor/target_net')
         
-        self.params_replace = [tf.assign(old, old * tau + (1.-tau) * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
+        self.params_replace = [tf.assign(old, new) for old, new in zip(self.targetnet_params, self.localnet_params)]
         
+        #optimizer = tf.train.RMSPropOptimizer(self.lr)
+        optimizer = tf.train.AdamOptimizer(self.lr)
         self.action_gradient = tf.placeholder(shape = [None, self.action_size], dtype = tf.float32)
+        
+        #self.loss = -tf.reduce_mean(tf.square(self.out - self.action_gradient))
+        #self.train_op = optimizer.minimize(self.loss)
+        
         self.unnorm_actor_gradients = tf.gradients(self.out, self.localnet_params, -self.action_gradient)
         self.action_gradients = list(map(lambda x: tf.div(x, self.bz), self.unnorm_actor_gradients))
-        
-        self.train_op = tf.train.RMSPropOptimizer(self.lr).apply_gradients(zip(self.action_gradients, self.localnet_params))
+        self.train_op = optimizer.apply_gradients(zip(self.action_gradients, self.localnet_params))
         
         # --- Checkpoint and summary #
         self.saver = tf.train.Saver()
@@ -60,13 +65,14 @@ class Actor():
     
     def train(self, inputs, this_gradient):
         # No return function
-        _ = self.sess.run(self.train_op, feed_dict = {self.state: inputs, self.action_gradient: this_gradient})
+        _ = self.sess.run(self.train_op, feed_dict = {self.state: inputs, 
+                                                      self.action_gradient: this_gradient})
         
     def update_target_network(self):
         # No return fuction
         self.sess.run(self.params_replace)
         
-    def _build_actor_network(self, neurons_per_layer = [256, 256, 128]):
+    def _build_actor_network(self, neurons_per_layer = [128, 128]):
         # --- Actor ---  #
         # Policy network #
         def mlp_block(x, units):
@@ -86,7 +92,7 @@ class Actor():
         return out, scale_out
         
 class Critic():
-    def __init__(self, session, state_size, action_size, learning_rate = 1e-3, tau=1e-3, gamma=0.9, mini_batch=64):
+    def __init__(self, session, state_size, action_size, learning_rate = 1e-3, tau=1e-2, gamma=0.9, batch_size=64):
         self.state_size = state_size
         self.action_size = action_size
         self.gamma = gamma
@@ -97,30 +103,33 @@ class Critic():
         self.state = tf.placeholder(shape = [None, self.state_size], dtype = tf.float32)
         self.next_state = tf.placeholder(shape = [None, self.state_size], dtype = tf.float32)
         self.action = tf.placeholder(shape = [None, self.action_size], dtype = tf.float32)
+        self.q_target = tf.placeholder(shape = [None], dtype = tf.float32)
         
         
         with tf.variable_scope("Critic"):
             with tf.name_scope('local'):
                 self.local_out = self._build_critic_network(self.state, trainable = True)
-                
             with tf.variable_scope('target'):
                 self.target_out = self._build_critic_network(self.next_state, trainable = False)
                 
         # Handlers for parameters
         self.localnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Critic/local')
         self.targetnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Critic/target')
-        self.params_replace = [tf.assign(old, old * tau + (1.-tau) * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
+        #self.params_replace = [tf.assign(old, old * tau + (1.-tau) * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
+        self.params_replace = [tf.assign(old, new) for old, new in zip(self.targetnet_params, self.localnet_params)]
         
-        #
-        self.predicted_q_value = tf.placeholder(shape = [None, self.action_size], dtype = tf.float32)
-        self.loss = tf.reduce_mean(tf.square(self.local_out - self.predicted_q_value))
+        # Compute loss for critic network
+        #self.predicted_q_value = tf.placeholder(shape = [None, self.action_size], dtype = tf.float32)
+        #self.loss = tf.reduce_mean(tf.square(self.local_out - self.predicted_q_value))
+        self.loss = tf.reduce_mean(tf.square(self.local_out - self.q_target))
         
-        optimizer = tf.train.RMSPropOptimizer(learning_rate)
+        #optimizer = tf.train.RMSPropOptimizer(learning_rate)
+        optimizer = tf.train.AdamOptimizer(learning_rate)
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
             self.train_op = optimizer.minimize(self.loss)
         
-        # self.local_out should be single value?
+        # self.local_out should be single value
         self.action_gradient = tf.gradients(ys = self.local_out, xs = self.action)[0]
         
     
@@ -132,39 +141,37 @@ class Critic():
         out = self.sess.run(self.target_out, feed_dict = {self.next_state: inputs, self.action: action})
         return out
     
-    def train(self, inputs, action, predicted_q_value):
+    def train(self, states, actions, q_targets):
+        """
+        Train critic and return current q-value
+        """
         out, _ = self.sess.run([self.local_out, self.train_op], 
-                               feed_dict = {self.state: inputs, 
-                                            self.action: action, 
-                                            self.predicted_q_value:predicted_q_value})
+                               feed_dict = {self.state: states, 
+                                            self.action: actions,
+                                            self.q_target: q_targets})
         return out
     
     def action_gradients(self, inputs, actions):
-        
         out = self.sess.run(self.action_gradient, feed_dict = {self.state: inputs, self.action: actions})
         return out
     
     def update_target_network(self):
         self.sess.run(self.params_replace)
     
-    def _build_critic_network(self, input_state, neurons_per_layer = [256,256,128], trainable = True):
-        # --- Critic --- #
-        ###  Q-network ###
+    def _build_critic_network(self, input_state, neurons_per_layer = [128,128], trainable = True):
+        # --- Critic, Q-network --- #
         def mlp_block(x, units, trainable):
             x = tf.layers.dense(x, units, trainable = trainable)
             x = tf.nn.relu(x)
             return x
         
+        x = tf.nn.relu(tf.layers.dense(input_state, 64))
+        x = tf.concat([x, self.action], axis = 1)
+                      
         for i, n in enumerate(neurons_per_layer):
-            if i == 0:
-                x = mlp_block(input_state, n, trainable)
-            else:
-                x = mlp_block(x, n, trainable)
-        x_a = tf.layers.dense(self.action, 64, trainable = trainable)
-        x = tf.concat([x, x_a], axis = 1)
+            x = mlp_block(x, n, trainable)
         
-        out = tf.layers.dense(x, self.action_size, trainable = trainable)
-        
+        out = tf.layers.dense(x, 1, trainable = trainable)
         return out
     
 # Taken from https://github.com/openai/baselines/blob/master/baselines/ddpg/noise.py, which is
