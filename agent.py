@@ -39,7 +39,7 @@ class Actor():
         self.localnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Actor/local_net')
         self.targetnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Actor/target_net')
         
-        self.params_replace = [tf.assign(old, new) for old, new in zip(self.targetnet_params, self.localnet_params)]
+        self.params_replace = [tf.assign(old, old * tau + (1.-tau) * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
         
         #optimizer = tf.train.RMSPropOptimizer(self.lr)
         optimizer = tf.train.AdamOptimizer(self.lr)
@@ -107,21 +107,19 @@ class Critic():
         
         
         with tf.variable_scope("Critic"):
-            with tf.name_scope('local'):
-                self.local_out = self._build_critic_network(self.state, trainable = True)
-            with tf.variable_scope('target'):
-                self.target_out = self._build_critic_network(self.next_state, trainable = False)
+            self.local_out = self._build_critic_network(self.state, self.action, 
+                                                        scope = 'local', trainable = True)
+            self.target_out = self._build_critic_network(self.next_state, self.action, 
+                                                         scope = 'target', trainable = False)
                 
         # Handlers for parameters
         self.localnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Critic/local')
         self.targetnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Critic/target')
-        #self.params_replace = [tf.assign(old, old * tau + (1.-tau) * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
-        self.params_replace = [tf.assign(old, new) for old, new in zip(self.targetnet_params, self.localnet_params)]
+        self.params_replace = [tf.assign(old, old * tau + (1.-tau) * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
+
         
         # Compute loss for critic network
-        #self.predicted_q_value = tf.placeholder(shape = [None, self.action_size], dtype = tf.float32)
-        #self.loss = tf.reduce_mean(tf.square(self.local_out - self.predicted_q_value))
-        self.loss = tf.reduce_mean(tf.square(self.local_out - self.q_target))
+        self.loss = tf.reduce_mean(tf.square(self.q_target - self.local_out))
         
         #optimizer = tf.train.RMSPropOptimizer(learning_rate)
         optimizer = tf.train.AdamOptimizer(learning_rate)
@@ -158,15 +156,21 @@ class Critic():
     def update_target_network(self):
         self.sess.run(self.params_replace)
     
-    def _build_critic_network(self, input_state, neurons_per_layer = [128,128], trainable = True):
+    def _build_critic_network(self, input_state, input_action, 
+                              scope, neurons_per_layer = [128,128], trainable = True):
         # --- Critic, Q-network --- #
         def mlp_block(x, units, trainable):
             x = tf.layers.dense(x, units, trainable = trainable)
             x = tf.nn.relu(x)
             return x
-        
-        x = tf.nn.relu(tf.layers.dense(input_state, 64))
-        x = tf.concat([x, self.action], axis = 1)
+        # ------------------------- #
+        with tf.variable_scope(scope):
+            n_l1 = 64
+            w1_s = tf.get_variable('w1_s', [self.state_size, n_l1], trainable = trainable)
+            w1_a = tf.get_variable('w1_a', [self.action_size, n_l1], trainable = trainable)
+            b1 = tf.get_variable('b1', [1, n_l1], trainable = trainable)
+            
+            x = tf.nn.relu(tf.matmul(input_state, w1_s) + tf.matmul(input_action, w1_a) + b1)
                       
         for i, n in enumerate(neurons_per_layer):
             x = mlp_block(x, n, trainable)
