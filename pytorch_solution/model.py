@@ -43,8 +43,8 @@ class Critic(nn.Module):
         self.fc4.weight.data.uniform_(-3e-3, 3e-3)
         
     def forward(self, state, action):
-        x = F.leaky_relu(self.fc1(state))
+        x = F.relu(self.fc1(state))
         x = torch.cat((x, action), dim=1)
-        x = F.leaky_relu(self.fc2(x))
-        x = F.leaky_relu(self.fc3(x))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
         return self.fc4(x)

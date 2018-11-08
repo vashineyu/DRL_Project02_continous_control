@@ -98,13 +98,12 @@ def ddpg(n_episodes=200, max_t=800, print_every=1):
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_deque)))
 
             for idx, agent in enumerate(agents):
-                chkpt_path_actor = "actor.pth"
+                chkpt_path_actor = "./actor.pth"
                 torch.save(agent.actor_local.state_dict(), chkpt_path_actor)
 
-                chkpt_path_critic = "critic.pth"
+                chkpt_path_critic = "./critic.pth"
                 torch.save(agent.critic_local.state_dict(), chkpt_path_critic)
             
-    print('\rSolved!!!')
     return avg_score
 scores = ddpg()
 
