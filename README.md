@@ -5,12 +5,15 @@ Soloving the [Unity Robit Arm Game](https://github.com/Unity-Technologies/ml-age
 ![Reacher](https://user-images.githubusercontent.com/10624937/43851024-320ba930-9aff-11e8-8493-ee547c6af349.gif)
 
 In this environment, a double-jointed arm can move to target locations. The max time for each game is 1000 steps. In this project, the Reacher_One is used. <br>
-State
-  * A vector with 33 variables corresponding to position, rotation, velocity, and angular velocities of the arm.
+
+State 
+* A vector with 33 variables corresponding to position, rotation, velocity, and angular velocities of the arm.
+
 Action
-  * A vector with 4 variables, ranged from -1 to +1
+* A vector with 4 variables, ranged from -1 to +1
+
 Reward
-  * +0.1 for each step that the agent's hand is in the goal location
+* +0.1 for each step that the agent's hand is in the goal location
 ### Project Goal: Attain average score 30+
 
 ## Setup
@@ -35,11 +38,12 @@ For other details, see [Report](./Report.pdf)
 
 ## Results
 I do the simple experiment on adding noise or not. <br>
-![with_noise](./tf_solution/result_with_noise.png) <br>
-Noise Version <br>
+Noise Version
+![with_noise](./tf_solution/result_with_noise.png)
 
-![without_noise](./tf_solution/result_without_noise.png) <br>
 (Without Noise)
+![without_noise](./tf_solution/result_without_noise.png)
+
 
 ## Ideas for future works
 I ran the experiment several times and found that the inital weight highly affect the result and training process. To reduce the unstable circumstace, a good initalization method (such as he_norm), slighly deeper network or add batch normalization to hidden layers may help a lot.
