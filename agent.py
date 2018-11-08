@@ -39,14 +39,11 @@ class Actor():
         self.localnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Actor/local_net')
         self.targetnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Actor/target_net')
         
-        self.params_replace = [tf.assign(old, old * tau + (1.-tau) * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
+        self.params_replace = [tf.assign(old, old * (1.-tau) + tau * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
         
         #optimizer = tf.train.RMSPropOptimizer(self.lr)
         optimizer = tf.train.AdamOptimizer(self.lr)
         self.action_gradient = tf.placeholder(shape = [None, self.action_size], dtype = tf.float32)
-        
-        #self.loss = -tf.reduce_mean(tf.square(self.out - self.action_gradient))
-        #self.train_op = optimizer.minimize(self.loss)
         
         self.unnorm_actor_gradients = tf.gradients(self.out, self.localnet_params, -self.action_gradient)
         self.action_gradients = list(map(lambda x: tf.div(x, self.bz), self.unnorm_actor_gradients))
@@ -115,7 +112,7 @@ class Critic():
         # Handlers for parameters
         self.localnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Critic/local')
         self.targetnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Critic/target')
-        self.params_replace = [tf.assign(old, old * tau + (1.-tau) * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
+        self.params_replace = [tf.assign(old, old * (1.-tau) + tau * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
 
         
         # Compute loss for critic network

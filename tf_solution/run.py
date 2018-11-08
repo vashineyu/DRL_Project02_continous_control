@@ -15,6 +15,8 @@ parser.add_argument('--num_episodes', default = 250, type = int)
 parser.add_argument('--batch_size', default = 64, type = int)
 parser.add_argument('--buffer_size', default = 1000, type = int)
 parser.add_argument('--use_gpu', default = 0)
+parser.add_argument('--experiment_tag', default = None, type = str)
+parser.add_argument('--use_noise', default = 1)
 FLAGS = parser.parse_args()
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
@@ -80,7 +82,8 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
         for counter in range(t_max):
             
             # Generate action by Actor's local_network
-            action = actor.predict(np.reshape(state, (1, actor.state_size))) + actor_noise()
+            noise = actor_noise() if FLAGS.use_noise else 0.
+            action = actor.predict(np.reshape(state, (1, actor.state_size))) + noise
 
             env_info = env.step(action[0])[brain_name]
             next_state = env_info.vector_observations[0]   # get the next state
@@ -139,6 +142,7 @@ with tf.Session() as sess:
     
     scores = train(sess, env, FLAGS, actor, critic, actor_noise)
     
+print("")
 print("Process Done")
     
 # Plot the Result #
@@ -151,4 +155,13 @@ plt.plot(np.arange(1, len(scores)+1), scores)
 plt.title("Result")
 plt.xlabel('Episode', fontsize = 16)
 plt.ylabel('Average Scores', fontsize = 16)
-plt.savefig("result.png")
+if FLAGS.experiment_tag is not None:
+    sav_name = "result_" + FLAGS.experiment_tag + ".png"
+    df_name = "result_" + FLAGS.experiment_tag + ".csv"
+else:
+    sav_name = "result.png"
+    df_name = "result.csv"
+plt.savefig(sav_name)
+
+df = pd.DataFrame({'avg_score': scores})
+df.to_csv(df_name)
