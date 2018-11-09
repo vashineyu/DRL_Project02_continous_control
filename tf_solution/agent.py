@@ -69,7 +69,7 @@ class Actor():
         # No return fuction
         self.sess.run(self.params_replace)
         
-    def _build_actor_network(self, neurons_per_layer = [128, 128]):
+    def _build_actor_network(self, neurons_per_layer = [256, 256, 128]):
         # --- Actor ---  #
         # Policy network #
         def mlp_block(x, units):
@@ -87,6 +87,14 @@ class Actor():
         scale_out = tf.nn.tanh(out) * self.action_bound
         
         return out, scale_out
+    
+    def save_model(self, model_name = None):
+        self.saver.save(self.sess, 'actor.ckpt' if model_name is None else model_name)
+        print("Model saved!")
+        
+    def load_model(self, model_name = None):
+        self.saver.restore(self.sess, 'actor.ckpt' if model_name is None else model_name)
+        print("Model loaded!")
         
 class Critic():
     def __init__(self, session, state_size, action_size, learning_rate = 1e-3, tau=1e-2, gamma=0.9, batch_size=64):
@@ -127,6 +135,8 @@ class Critic():
         # self.local_out should be single value
         self.action_gradient = tf.gradients(ys = self.local_out, xs = self.action)[0]
         
+        self.saver = tf.train.Saver()
+        
     
     def predict(self, inputs, action):
         out = self.sess.run(self.local_out, feed_dict = {self.state: inputs, self.action: action})
@@ -154,7 +164,7 @@ class Critic():
         self.sess.run(self.params_replace)
     
     def _build_critic_network(self, input_state, input_action, 
-                              scope, neurons_per_layer = [128,128], trainable = True):
+                              scope, neurons_per_layer = [256,256, 128], trainable = True):
         # --- Critic, Q-network --- #
         def mlp_block(x, units, trainable):
             x = tf.layers.dense(x, units, trainable = trainable)
@@ -175,10 +185,18 @@ class Critic():
         out = tf.layers.dense(x, 1, trainable = trainable)
         return out
     
+    def save_model(self, model_name = None):
+        self.saver.save(self.sess, 'critic.ckpt' if model_name is None else model_name)
+        print("Model saved!")
+        
+    def load_model(self, model_name = None):
+        self.saver.restore(self.sess, 'critic.ckpt' if model_name is None else model_name)
+        print("Model loaded!")
+    
 # Taken from https://github.com/openai/baselines/blob/master/baselines/ddpg/noise.py, which is
 # based on http://math.stackexchange.com/questions/1287634/implementing-ornstein-uhlenbeck-in-matlab
 class OrnsteinUhlenbeckActionNoise:
-    def __init__(self, mu, sigma=0.3, theta=.15, dt=1e-2, x0=None):
+    def __init__(self, mu, sigma=0.3, theta=.1, dt=1e-2, x0=None):
         self.theta = theta
         self.mu = mu
         self.sigma = sigma

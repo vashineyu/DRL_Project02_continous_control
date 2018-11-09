@@ -61,11 +61,11 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
     time_steps = 20
     num_update = 10
     t_max = 800
-    
     sess.run(tf.global_variables_initializer())    
-    avg_score = []
-    scores_deque = deque(maxlen = 100)
-    scores = np.zeros(num_agents)
+    
+    avg_score = [] # record agents' mean scores over episodes
+    scores_deque = deque(maxlen = 100) # smoothed average scores
+    
     len_agents = len(str(num_agents))
     
     env_info  = env.reset(train_mode=True)[brain_name]
@@ -79,15 +79,19 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
         env_info  = env.reset(train_mode=True)[brain_name]
         state = env_info.vector_observations[0]
         
-        for counter in range(t_max):
-            
+        # Scroe reset for the episode
+        scores = np.zeros(num_agents)
+        
+        counter = 0
+        while True:
+            counter += 1
             # Generate action by Actor's local_network
             noise = actor_noise() if FLAGS.use_noise else 0.
             action = actor.predict(np.reshape(state, (1, actor.state_size))) + noise
 
             env_info = env.step(action[0])[brain_name]
             next_state = env_info.vector_observations[0]   # get the next state
-            reward = float(env_info.rewards[0])                   # get the reward
+            reward = env_info.rewards[0]                   # get the reward
             done = env_info.local_done[0]                  # see if episode has finished
 
             replay_buffer.add(np.reshape(state, (actor.state_size,)), 
@@ -128,7 +132,10 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
         avg_score.append(score)
         scores_deque.append(score)
         
-        print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_deque)), end="")
+        print('\rEpisode {}\t Episode score:{:.2f}\tAverage Score: {:.2f}'.format(i_episode, score, np.mean(scores_deque)), end="")
+        actor.save_model()
+        critic.save_model()
+        
         
     return avg_score
 
@@ -163,5 +170,5 @@ else:
     df_name = "result.csv"
 plt.savefig(sav_name)
 
-df = pd.DataFrame({'avg_score': scores})
+df = pd.DataFrame({'score_of_episode': scores})
 df.to_csv(df_name)
