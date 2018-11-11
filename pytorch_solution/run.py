@@ -49,11 +49,10 @@ import torch
 def ddpg(n_episodes=200, max_t=800, print_every=1):
     avg_score = []
     scores_deque = deque(maxlen=100)
-    scores = np.zeros(num_agents)
+    
     time_steps = 20
     num_update = 10
     len_agents = len(str(num_agents))
-    
     env_info = env.reset(train_mode=True)[brain_name]
     
     states = env_info.vector_observations
@@ -64,6 +63,7 @@ def ddpg(n_episodes=200, max_t=800, print_every=1):
     action = [agent.act(states[idx]) for idx, agent in enumerate(agents)]
 
     for i_episode in range(1, n_episodes+1):
+        scores = np.zeros(num_agents)
         env_info = env.reset(train_mode=True)[brain_name]
         states = env_info.vector_observations                  # get the current state (for each agent)
         for agent in agents:
