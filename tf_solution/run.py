@@ -23,7 +23,7 @@ GAMMA = 0.9  # reward discount
 REPLACE_ITER_A = 10 #1100
 REPLACE_ITER_C = 10 #1000
 MEMORY_CAPACITY = 10000
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 
 from tqdm import tqdm
 
