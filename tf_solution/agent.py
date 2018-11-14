@@ -5,7 +5,7 @@ import tensorflow as tf
 """
 Implementation of DDPG for solving continous control
 """
-TAU = 1e-3
+TAU = 1e-2
 
 class Actor(object):
     def __init__(self, sess, action_dim, action_bound, learning_rate, t_replace_iter, S, R, S_):
