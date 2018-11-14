@@ -58,20 +58,15 @@ from agent import Actor, Critic, OrnsteinUhlenbeckActionNoise, build_summary
 from utils import ReplayBuffer
 
 def train(sess, env, FLAGS, actor, critic, actor_noise):
-    time_steps = 20
-    num_update = 10
-    t_max = 800
-    sess.run(tf.global_variables_initializer())    
-    
     avg_score = [] # record agents' mean scores over episodes
     scores_deque = deque(maxlen = 100) # smoothed average scores
     
+    gamma = 0.9
+    time_steps = 20
+    num_update = 10
+    t_max = 2000
+    sess.run(tf.global_variables_initializer())    
     len_agents = len(str(num_agents))
-    
-    env_info  = env.reset(train_mode=True)[brain_name]
-    # Make local and target network have same initalized weights
-    actor.update_target_network()
-    critic.update_target_network()
     
     replay_buffer = ReplayBuffer(FLAGS.buffer_size)
     
@@ -82,13 +77,10 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
         # Scroe reset for the episode
         scores = np.zeros(num_agents)
         
-        counter = 0
-        while True:
-            counter += 1
+        for counter in range(1, t_max+1):
             # Generate action by Actor's local_network
             noise = actor_noise() if FLAGS.use_noise else 0.
-            action = actor.predict(np.reshape(state, (1, actor.state_size))) + noise
-
+            action = np.clip(actor.predict(np.reshape(state, (1, actor.state_size))) + noise, -1, 1)
             env_info = env.step(action[0])[brain_name]
             next_state = env_info.vector_observations[0]   # get the next state
             reward = env_info.rewards[0]                   # get the reward
@@ -106,8 +98,10 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
                     s1_batch, a_batch, r_batch, t_batch, s2_batch = replay_buffer.sample_batch(FLAGS.batch_size)
                     a2_batch = actor.predict_target(s2_batch)
                     q_target_next = critic.predict_target(s2_batch, a2_batch)
+                    
                     # reward + (not done * gamma * q_target_next)
-                    q_target = r_batch + (1.-t_batch) * 0.9 * q_target_next.ravel()
+                    q_target = r_batch + (1.-t_batch) * gamma * q_target_next.ravel()
+                    
                     # Evaluate Actors' action by critic and train the critic  
                     current_q_value = critic.train(states = s1_batch,
                                                    actions = a_batch,
@@ -133,9 +127,9 @@ def train(sess, env, FLAGS, actor, critic, actor_noise):
         scores_deque.append(score)
         
         print('\rEpisode {}\t Episode score:{:.2f}\tAverage Score: {:.2f}'.format(i_episode, score, np.mean(scores_deque)), end="")
-        actor.save_model()
-        critic.save_model()
         
+        #actor.save_model()
+        #critic.save_model()
         
     return avg_score
 
