@@ -5,224 +5,170 @@ import tensorflow as tf
 """
 Implementation of DDPG for solving continous control
 """
+TAU = 1e-2
 
-class Actor():
-    def __init__(self, session, state_size, action_size, action_bound = 1, learning_rate = 1e-3, tau = 1e-2, batch_size = 64):
-        """
-        Actor network
-        Args:
-        - state_size: size of states
-        - action_size: size of available actions
-        - action_bound: the real continous action will be range from "-action_bound" to "+action_bound"
-        - learning_rate: optimizer lr
-        
-        """
-        self.state_size = state_size
-        self.action_size = action_size
+class Actor(object):
+    def __init__(self, sess, action_dim, action_bound, learning_rate, t_replace_iter, S, R, S_):
+        self.sess = sess
+        self.a_dim = action_dim
         self.action_bound = action_bound
         self.lr = learning_rate
-        self.bz = batch_size
-        
-        print("State size: %i" % self.state_size)
-        print("Action size: %i" % self.action_size)
-        
-        # --- Init Model --- #
-        self.sess = session
-        
-        self.state = tf.placeholder(shape = [None, self.state_size], dtype = tf.float32)
-        self.learning_phase = tf.placeholder(dtype = tf.bool, name = 'phase')
-        
-        with tf.variable_scope("Actor"):
-            with tf.variable_scope('local_net'):
-                self.out, self.scaled_out = self._build_actor_network(trainable = True)
-            with tf.variable_scope('target_net'):
-                self.target_out, self.target_scaled_out = self._build_actor_network(trainable = False)
-            
-        self.localnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Actor/local_net')
-        self.targetnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Actor/target_net')
-        
-        self.params_replace = [tf.assign(old, old * (1.-tau) + tau * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
-        
-        #optimizer = tf.train.RMSPropOptimizer(self.lr)
-        optimizer = tf.train.AdamOptimizer(self.lr)
-        self.action_gradient = tf.placeholder(shape = [None, self.action_size], dtype = tf.float32)
-        
-        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-        with tf.control_dependencies(update_ops):
-            self.unnorm_actor_gradients = tf.gradients(self.out, self.localnet_params, -self.action_gradient)
-            self.action_gradients = list(map(lambda x: tf.div(x, self.bz), self.unnorm_actor_gradients))
-            self.train_op = optimizer.apply_gradients(zip(self.action_gradients, self.localnet_params))
-        
-        # --- Checkpoint and summary #
-        self.saver = tf.train.Saver()
-        
-    def predict(self, inputs):
-        value = self.sess.run(self.scaled_out, feed_dict = {self.state:inputs, 
-                                                            self.learning_phase: False})
-        return value
-    
-    def predict_target(self, inputs):
-        value = self.sess.run(self.target_scaled_out, feed_dict = {self.state:inputs, 
-                                                                   self.learning_phase: False})
-        return value
-    
-    def train(self, inputs, this_gradient):
-        # No return function
-        _ = self.sess.run(self.train_op, feed_dict = {self.state: inputs, 
-                                                      self.action_gradient: this_gradient,
-                                                      self.learning_phase: True})
-        
-    def update_target_network(self):
-        # No return fuction
-        self.sess.run(self.params_replace)
-        
-    def _build_actor_network(self, neurons_per_layer = [256, 256], trainable = True):
-        # --- Actor ---  #
-        # Policy network #
-        def mlp_block(x, units, trainable = trainable):
-            x = tf.layers.dense(x, units, trainable = trainable)
-            x = tf.layers.batch_normalization(x, trainable = trainable, training = self.learning_phase)
-            x = tf.nn.relu(x)
-            return x
-        
-        for i, n in enumerate(neurons_per_layer):
-            if i == 0:
-                x = mlp_block(self.state, n)
-            else:
-                x = mlp_block(x, n)
-        
-        out = tf.layers.dense(x, units = self.action_size, trainable = trainable)
-        scale_out = tf.nn.tanh(out) * self.action_bound
-        
-        return out, scale_out
-    
-    def save_model(self, model_name = None):
-        self.saver.save(self.sess, './actor.ckpt' if model_name is None else model_name)
-        print("Model saved!")
-        
-    def load_model(self, model_name = None):
-        self.saver.restore(self.sess, './actor.ckpt' if model_name is None else model_name)
-        print("Model loaded!")
-        
-class Critic():
-    def __init__(self, session, state_size, action_size, learning_rate = 1e-3, tau=1e-2, gamma=0.9, batch_size=64):
-        self.state_size = state_size
-        self.action_size = action_size
-        self.gamma = gamma
-        
-        # init the model #
-        self.sess = session
-        global_step = tf.Variable(0, trainable=False)
-        self.state = tf.placeholder(shape = [None, self.state_size], dtype = tf.float32)
-        self.next_state = tf.placeholder(shape = [None, self.state_size], dtype = tf.float32)
-        self.action = tf.placeholder(shape = [None, self.action_size], dtype = tf.float32)
-        
-        self.learning_phase = tf.placeholder(dtype = tf.bool, name = 'phase')
-        
-        with tf.variable_scope("Critic"):
-            self.local_out = self._build_critic_network(self.state, self.action, 
-                                                        scope = 'local', trainable = True)
-            self.target_out = self._build_critic_network(self.next_state, self.action, 
-                                                         scope = 'target', trainable = False)
-                
-        # Handlers for parameters
-        self.localnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Critic/local')
-        self.targetnet_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Critic/target')
-        self.params_replace = [tf.assign(old, old * (1.-tau) + tau * new) for old, new in zip(self.targetnet_params, self.localnet_params)]
+        self.t_replace_iter = t_replace_iter
+        self.t_replace_counter = 0
+        self.S = S
+        self.R = R
+        self.S_ = S_
 
+        with tf.variable_scope('Actor'):
+            # input s, output a
+            self.a = self._build_net(S, scope='eval_net', trainable=True)
+
+            # input s_, output a, get a_ for critic
+            self.a_ = self._build_net(S_, scope='target_net', trainable=False)
+
+        self.e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Actor/eval_net')
+        self.t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Actor/target_net')
         
-        # Compute loss for critic network
-        self.q_target = tf.placeholder(shape = [None], dtype = tf.float32)
-        self.loss = tf.reduce_mean(tf.square(self.q_target - self.local_out))
-        
-        
-        lr_c = tf.train.exponential_decay(learning_rate, global_step, 10000, 0.999)
-        
-        #optimizer = tf.train.RMSPropOptimizer(learning_rate)
-        optimizer = tf.train.AdamOptimizer(lr_c)
-        
-        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-        with tf.control_dependencies(update_ops):
-            #self.train_op = optimizer.minimize(self.loss)
-            c_grads = optimizer.compute_gradients(self.loss, var_list = self.localnet_params)
-            capped_gvs = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in c_grads]
-            self.train_op = optimizer.apply_gradients(capped_gvs)
-        
-        # self.local_out should be single value
-        self.action_gradient = tf.gradients(ys = self.local_out, xs = self.action)[0]
-        
-        self.saver = tf.train.Saver()
-        
-    
-    def predict(self, inputs, action):
-        out = self.sess.run(self.local_out, feed_dict = {self.state: inputs, 
-                                                         self.action: action,
-                                                         self.learning_phase: False})
-        return out
-    
-    def predict_target(self, inputs, action):
-        out = self.sess.run(self.target_out, feed_dict = {self.next_state: inputs, 
-                                                          self.action: action,
-                                                          self.learning_phase: False})
-        return out
-    
-    def train(self, states, actions, q_targets):
-        """
-        Train critic and return current q-value
-        """
-        
-        out, _ = self.sess.run([self.local_out, self.train_op], 
-                               feed_dict = {self.state: states, 
-                                            self.action: actions,
-                                            self.q_target: q_targets,
-                                            self.learning_phase: True})
-        return out
-    
-    def action_gradients(self, inputs, actions):
-        out = self.sess.run(self.action_gradient, feed_dict = {self.state: inputs, 
-                                                               self.action: actions,
-                                                               self.learning_phase: False})
-        return out
-    
-    def update_target_network(self):
-        self.sess.run(self.params_replace)
-    
-    def _build_critic_network(self, input_state, input_action, 
-                              scope, neurons_per_layer = [256, 256], trainable = True):
-        # --- Critic, Q-network --- #
-        def mlp_block(x, units, trainable):
-            x = tf.layers.dense(x, units, trainable = trainable)
-            x = tf.layers.batch_normalization(x, trainable = trainable, training = self.learning_phase)
-            x = tf.nn.relu(x)
-            return x
-        # ------------------------- #
+        self.soft_update = [tf.assign(t, (1-TAU) * t + TAU * e) for t, e in zip(self.t_params, self.e_params)]
+
+    def _build_net(self, s, scope, trainable):
         with tf.variable_scope(scope):
-            n_l1 = 64
-            w1_s = tf.get_variable('w1_s', [self.state_size, n_l1], trainable = trainable)
-            w1_a = tf.get_variable('w1_a', [self.action_size, n_l1], trainable = trainable)
-            b1 = tf.get_variable('b1', [1, n_l1], trainable = trainable)
-            x = tf.matmul(input_state, w1_s) + tf.matmul(input_action, w1_a) + b1
-            x = tf.layers.batch_normalization(x, trainable = trainable, training = self.learning_phase)
-            x = tf.nn.relu(x)
-                      
-        for i, n in enumerate(neurons_per_layer):
-            x = mlp_block(x, n, trainable)
+            init_w = tf.contrib.layers.xavier_initializer()
+            #init_w = tf.initializers.random_normal()
+            init_b = tf.constant_initializer(0.001)
+            
+            net = tf.layers.dense(s, 256, activation=tf.nn.relu6,
+                                  kernel_initializer=init_w, bias_initializer=init_b, name='l1',
+                                  trainable=trainable)
+            
+            net = tf.layers.dense(net, 256, activation=tf.nn.relu6,
+                                  kernel_initializer=init_w, bias_initializer=init_b, name='l2',
+                                  trainable=trainable)
+            
+            net = tf.layers.dense(net, 16, activation=tf.nn.relu,
+                                  kernel_initializer=init_w, bias_initializer=init_b, name='l3',
+                                  trainable=trainable)
+            
+            with tf.variable_scope('a'):
+                actions = tf.layers.dense(net, self.a_dim, activation=tf.nn.tanh, kernel_initializer=init_w,
+                                          name='a', trainable=trainable)
+                scaled_a = tf.multiply(actions, self.action_bound, name='scaled_a')  # Scale output to -action_bound to action_bound
+        return scaled_a
+
+    def learn(self, s):   # batch update
+        self.sess.run(self.train_op, feed_dict={self.S: s})
+        if self.t_replace_counter % self.t_replace_iter == 0:
+            self.sess.run(self.soft_update)
+        self.t_replace_counter += 1
+
+    def act(self, s):
+        s = s[np.newaxis, :]    # single state
+        return self.sess.run(self.a, feed_dict={self.S: s})[0]  # single action
+
+    def add_grad_to_graph(self, a_grads):
+        with tf.variable_scope('policy_grads'):
+            self.policy_grads = tf.gradients(ys=self.a, xs=self.e_params, grad_ys=a_grads)
+
+        with tf.variable_scope('A_train'):
+            opt = tf.train.AdamOptimizer(-self.lr)  # (- learning rate) for ascent policy
+            self.train_op = opt.apply_gradients(zip(self.policy_grads, self.e_params))
+            
+            
+class Critic(object):
+    def __init__(self, sess, state_dim, action_dim, learning_rate, gamma, t_replace_iter, a, a_, S, R, S_):
+        self.sess = sess
+        self.s_dim = state_dim
+        self.a_dim = action_dim
+        self.lr = learning_rate
+        self.gamma = gamma
+        self.t_replace_iter = t_replace_iter
+        self.t_replace_counter = 0
+        global_step = tf.Variable(0, trainable = False)
+        self.S = S
+        self.R = R
+        self.S_ = S_
+
+        with tf.variable_scope('Critic'):
+            # Input (s, a), output q
+            self.a = a
+            self.q = self._build_net(S, self.a, 'eval_net', trainable=True)
+
+            # Input (s_, a_), output q_ for q_target
+            self.q_ = self._build_net(S_, a_, 'target_net', trainable=False)    # target_q is based on a_ from Actor's target_net
+
+            self.e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Critic/eval_net')
+            self.t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Critic/target_net')
+
+        with tf.variable_scope('target_q'):
+            self.target_q = R + self.gamma * self.q_
+
+        with tf.variable_scope('TD_error'):
+            self.loss = tf.reduce_mean(tf.squared_difference(self.target_q, self.q))
+            
+        lr_c = tf.train.exponential_decay(self.lr, global_step, 100000, 0.999)
+        with tf.variable_scope('C_train'):
+            self.opt = tf.train.AdamOptimizer(lr_c)
+            c_grads = self.opt.compute_gradients(self.loss)
+            capped_gvs = [(tf.clip_by_value(grad, -3., 3.), var) for grad, var in c_grads]
+            self.train_op = self.opt.apply_gradients(capped_gvs)
+            #.minimize(self.loss)
+
+        with tf.variable_scope('a_grad'):
+            self.a_grads = tf.gradients(self.q, a)[0]   # tensor of gradients of each sample (None, a_dim)
+            
+        self.soft_update = [tf.assign(t, (1-TAU) * t + TAU * e) for t, e in zip(self.t_params, self.e_params)]
+
+    def _build_net(self, s, a, scope, trainable):
+        with tf.variable_scope(scope):
+            init_w = tf.contrib.layers.xavier_initializer()
+            #init_w = tf.initializers.random_normal()
+            init_b = tf.constant_initializer(0.01)
+
+            with tf.variable_scope('l1'):
+                n_l1 = 256
+                w1_s = tf.get_variable('w1_s', [self.s_dim, n_l1], initializer=init_w, trainable=trainable)
+                w1_a = tf.get_variable('w1_a', [self.a_dim, n_l1], initializer=init_w, trainable=trainable)
+                b1 = tf.get_variable('b1', [1, n_l1], initializer=init_b, trainable=trainable)
+                net = tf.nn.relu6(tf.matmul(s, w1_s) + tf.matmul(a, w1_a) + b1)
+                
+            net = tf.layers.dense(net, 256, activation=tf.nn.relu6,
+                                  kernel_initializer=init_w, bias_initializer=init_b, name='l2',
+                                  trainable=trainable)
+            net = tf.layers.dense(net, 16, activation=tf.nn.relu,
+                                  kernel_initializer=init_w, bias_initializer=init_b, name='l3',
+                                  trainable=trainable)
+            with tf.variable_scope('q'):
+                q = tf.layers.dense(net, 1, kernel_initializer=init_w, bias_initializer=init_b, trainable=trainable)   # Q(s,a)
+        return q
+
+    def learn(self, s, a, r, s_):
+        self.sess.run(self.train_op, feed_dict={self.S: s, self.a: a, self.R: r, self.S_: s_})
+        if self.t_replace_counter % self.t_replace_iter == 0:
+            self.sess.run(self.soft_update)
+        self.t_replace_counter += 1
         
-        out = tf.layers.dense(x, 1, trainable = trainable)
-        return out
-    
-    def save_model(self, model_name = None):
-        self.saver.save(self.sess, 'critic.ckpt' if model_name is None else model_name)
-        print("Model saved!")
         
-    def load_model(self, model_name = None):
-        self.saver.restore(self.sess, 'critic.ckpt' if model_name is None else model_name)
-        print("Model loaded!")
+class Memory(object):
+    def __init__(self, capacity, dims):
+        self.capacity = capacity
+        self.data = np.zeros((capacity, dims))
+        self.pointer = 0
+
+    def store_transition(self, s, a, r, s_):
+        transition = np.hstack((s, a, [r], s_))
+        index = self.pointer % self.capacity  # replace the old memory with new memory
+        self.data[index, :] = transition
+        self.pointer += 1
+
+    def sample(self, n):
+        assert self.pointer >= self.capacity, 'Memory has not been fulfilled'
+        indices = np.random.choice(self.capacity, size=n)
+        return self.data[indices, :]
     
 # Taken from https://github.com/openai/baselines/blob/master/baselines/ddpg/noise.py, which is
 # based on http://math.stackexchange.com/questions/1287634/implementing-ornstein-uhlenbeck-in-matlab
 class OrnsteinUhlenbeckActionNoise:
-    def __init__(self, mu, sigma=0.3, theta=.1, dt=1e-2, x0=None):
+    def __init__(self, mu, sigma=0.15, theta=.1, dt=1e-2, x0=None):
         self.theta = theta
         self.mu = mu
         self.sigma = sigma

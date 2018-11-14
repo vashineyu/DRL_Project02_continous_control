@@ -46,4 +46,5 @@ Noise Version
 
 
 ## Ideas for future works
-I ran the experiment several times and found that the inital weight highly affect the result and training process. To reduce the unstable circumstace, a good initalization method (such as he_norm), slighly deeper network or add batch normalization to hidden layers may help a lot.
+I ran the experiment several times and found that the inital weight highly affect the result and training process. To reduce the unstable circumstace, a good initalization method (such as he_norm), slighly deeper network or add batch normalization to hidden layers may help a lot. <br>
+However, I found many issues [1](https://www.reddit.com/r/MachineLearning/comments/671455/d_batch_normalization_in_reinforcement_learning/), [2](https://www.reddit.com/r/learnmachinelearning/comments/7jif2c/ddpg_and_batch_normalization_in_tensorflow/) and [3](https://www.zhihu.com/question/279463524) report that BN may not suitable for some RL algorithm, such as DDPG. It is quite confuse about the target network should apply moving statistics or batch statistic and many other issues. Hence, about how to stablize the internal weight might be a interesting issue in DDPG algorithm.

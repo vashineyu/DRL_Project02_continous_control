@@ -11,13 +11,21 @@ import matplotlib.pyplot as plt
 
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('--num_episodes', default = 250, type = int)
-parser.add_argument('--batch_size', default = 64, type = int)
-parser.add_argument('--buffer_size', default = 1000, type = int)
 parser.add_argument('--use_gpu', default = 0)
 parser.add_argument('--experiment_tag', default = None, type = str)
-parser.add_argument('--use_noise', default = 1)
 FLAGS = parser.parse_args()
+
+MAX_EPISODES = 1200
+UPDATE_PER_ITER = 20
+LR_A = 1e-3  # learning rate for actor
+LR_C = 1e-3  # learning rate for critic
+GAMMA = 0.9  # reward discount
+REPLACE_ITER_A = 10 #1100
+REPLACE_ITER_C = 10 #1000
+MEMORY_CAPACITY = 10000
+BATCH_SIZE = 64
+
+from tqdm import tqdm
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 if FLAGS.use_gpu:
@@ -54,94 +62,89 @@ print('The state for the first agent looks like:', states[0])
 
 ### Build Training loop
 # each epoch have 1000 steps, per contact get 0.1 reward
-from agent import Actor, Critic, OrnsteinUhlenbeckActionNoise, build_summary
+from agent import Actor, Critic, OrnsteinUhlenbeckActionNoise, build_summary, Memory
 from utils import ReplayBuffer
 
-def train(sess, env, FLAGS, actor, critic, actor_noise):
-    avg_score = [] # record agents' mean scores over episodes
-    scores_deque = deque(maxlen = 100) # smoothed average scores
-    
-    gamma = 0.9
-    time_steps = 20
-    num_update = 10
+def train(sess, env, actor, critic, actor_noise, M):
     t_max = 2000
+    saver = tf.train.Saver()
     sess.run(tf.global_variables_initializer())    
+    avg_score = []
+    scores_deque = deque(maxlen = 100)
     len_agents = len(str(num_agents))
     
-    replay_buffer = ReplayBuffer(FLAGS.buffer_size)
-    
-    for i_episode in range(FLAGS.num_episodes):
-        env_info  = env.reset(train_mode=True)[brain_name]
-        state = env_info.vector_observations[0]
-        
-        # Scroe reset for the episode
+    for i_episode in range(1, MAX_EPISODES+1):
         scores = np.zeros(num_agents)
+        env_info  = env.reset(train_mode=True)[brain_name]
+        states = env_info.vector_observations[0]
+        actor_noise.reset()
         
-        for counter in range(1, t_max+1):
+        for counter in range(t_max):       
             # Generate action by Actor's local_network
-            noise = actor_noise() if FLAGS.use_noise else 0.
-            action = np.clip(actor.predict(np.reshape(state, (1, actor.state_size))) + noise, -1, 1)
-            env_info = env.step(action[0])[brain_name]
-            next_state = env_info.vector_observations[0]   # get the next state
-            reward = env_info.rewards[0]                   # get the reward
-            done = env_info.local_done[0]                  # see if episode has finished
+            actions = np.clip(actor.act(states) + actor_noise(), -1, 1) #
+            env_info = env.step(actions)[brain_name]
+            next_states = env_info.vector_observations[0]   # get the next state
+            rewards = env_info.rewards[0]                   # get the reward
+            dones = env_info.local_done[0]                  # see if episode has finished
 
-            replay_buffer.add(np.reshape(state, (actor.state_size,)), 
-                              np.reshape(action, (actor.action_size,)),
-                              reward,
-                              done,
-                              np.reshape(next_state, (actor.state_size,))
-                             )
+            M.store_transition(states, actions, rewards, next_states)
+            if (counter % UPDATE_PER_ITER == 0) & (M.pointer > MEMORY_CAPACITY):
+                for _ in range(10):
+                    b_M = M.sample(BATCH_SIZE)
+                    b_s = b_M[:, :STATE_DIM]
+                    b_a = b_M[:, STATE_DIM: STATE_DIM + ACTION_DIM]
+                    b_r = b_M[:, -STATE_DIM - 1: -STATE_DIM]
+                    b_s_ = b_M[:, -STATE_DIM:]
 
-            if (counter % time_steps == 0):
-                for _ in range(num_update):
-                    s1_batch, a_batch, r_batch, t_batch, s2_batch = replay_buffer.sample_batch(FLAGS.batch_size)
-                    a2_batch = actor.predict_target(s2_batch)
-                    q_target_next = critic.predict_target(s2_batch, a2_batch)
-                    
-                    # reward + (not done * gamma * q_target_next)
-                    q_target = r_batch + (1.-t_batch) * gamma * q_target_next.ravel()
-                    
-                    # Evaluate Actors' action by critic and train the critic  
-                    current_q_value = critic.train(states = s1_batch,
-                                                   actions = a_batch,
-                                                   q_targets = q_target)
-
-                    a_outs = actor.predict(s1_batch)
-                    grads = critic.action_gradients(s1_batch, a_outs)
-
-                    # train actor
-                    actor.train(s1_batch, grads)
-
-                    actor.update_target_network()
-                    critic.update_target_network()
+                    critic.learn(b_s, b_a, b_r, b_s_)
+                    actor.learn(b_s)
             
-            state = next_state
-            scores += reward
+            states = next_states
+            scores += rewards
             
-            if np.any(done):
+            if np.any(dones):
                 break
-
         score = np.mean(scores)
         avg_score.append(score)
         scores_deque.append(score)
         
-        print('\rEpisode {}\t Episode score:{:.2f}\tAverage Score: {:.2f}'.format(i_episode, score, np.mean(scores_deque)), end="")
+        print('\rEpisode {}\tEpisode Score: {:.2f}\tAverage Score: {:.2f}\tMax Score: {:.2f}'.format(i_episode, score, np.mean(scores_deque), np.max(avg_score)), end="")
         
-        #actor.save_model()
-        #critic.save_model()
-        
+        if np.mean(scores_deque) >= 30.:
+            print("Game solved")
+            saver.save(sess, "./ddpg.ckpt", write_meta_graph = False)
+            break
     return avg_score
 
 # Run it
+tf.reset_default_graph()
 with tf.Session() as sess:
-    action_bound = 1
-    actor = Actor(sess, state_size, action_size, action_bound, batch_size = FLAGS.batch_size)
-    critic = Critic(sess, state_size, action_size, batch_size = FLAGS.batch_size)
+    env_info = env.reset(train_mode=True)[brain_name]
+    action_size = ACTION_DIM = brain.vector_action_space_size
+    states = env_info.vector_observations
+    state_size = STATE_DIM = states.shape[1]
+    action_bound = ACTION_BOUND = 1
+    print("State size: %i, Action size: %i, Action bound: %.2f" % (STATE_DIM, ACTION_DIM, ACTION_BOUND) )
+    """
+    Set model
+    """
+    with tf.name_scope('S'):
+        S = tf.placeholder(tf.float32, shape=[None, state_size], name='s')
+    
+    with tf.name_scope('R'):
+        R = tf.placeholder(tf.float32, [None, 1], name='r')
+        
+    with tf.name_scope('S_'):
+        S_ = tf.placeholder(tf.float32, shape=[None, state_size], name='s_')
+    
+    actor = Actor(sess, action_size, action_bound, learning_rate=LR_A, t_replace_iter=REPLACE_ITER_A, S = S, R = R, S_ = S_)
+    critic = Critic(sess, state_size, action_size, LR_C, GAMMA, REPLACE_ITER_C, actor.a, actor.a_, S= S, R = R, S_ = S_)
+    actor.add_grad_to_graph(critic.a_grads)
+    M = Memory(MEMORY_CAPACITY, dims=2 * state_size + action_size + 1)
     
     actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_size))
     
-    scores = train(sess, env, FLAGS, actor, critic, actor_noise)
+    scores = train(sess, env, actor, critic, actor_noise, M)
     
 print("")
 print("Process Done")
