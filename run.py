@@ -10,8 +10,8 @@ parser.add_argument('--use_noise', default = 1)
 FLAGS = parser.parse_args()
 
 # select this option to load version 1 (with a single agent) of the environment
-env = UnityEnvironment(file_name='../Reacher_Linux_NoVis/Reacher.x86_64')
-#env = UnityEnvironment(file_name='../Reacher_One_Linux_NoVis/Reacher_One_Linux_NoVis.x86_64')
+env = UnityEnvironment(file_name='./Reacher_Linux_NoVis/Reacher.x86_64')
+#env = UnityEnvironment(file_name='./Reacher_One_Linux_NoVis/Reacher_One_Linux_NoVis.x86_64')
 
 brain_name = env.brain_names[0]
 brain = env.brains[brain_name]
