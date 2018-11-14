@@ -39,10 +39,10 @@ For other details, see [Report](./Report.pdf)
 ## Results
 I do the simple experiment on adding noise or not. <br>
 Noise Version
-![with_noise](./tf_solution/result_with_noise.png)
+![with_noise](./pytorch_solution/result_with_noise.png)
 
 (Without Noise)
-![without_noise](./tf_solution/result_without_noise.png)
+![without_noise](./pytorch_solution/result_without_noise.png)
 
 
 ## Ideas for future works
